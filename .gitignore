@@ -1,0 +1,19 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty/
+.coverage
+htmlcov/
+
+# uv
+.venv/
+
+# Environment
+.env
+.env.*
+!.env.example

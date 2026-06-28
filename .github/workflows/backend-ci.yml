@@ -1,0 +1,56 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+
+permissions: {}
+
+jobs:
+  backend-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.11.18"
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install backend dependencies
+        run: uv sync --locked
+        working-directory: backend
+
+      - name: Check formatting
+        run: uv run ruff format --check app tests
+        working-directory: backend
+
+      - name: Lint
+        run: uv run ruff check app tests
+        working-directory: backend
+
+      - name: Type check with mypy
+        run: uv run mypy app tests
+        working-directory: backend
+
+      - name: Type check with ty
+        run: uv run ty check app tests
+        working-directory: backend
+
+      - name: Test
+        run: uv run pytest
+        working-directory: backend
