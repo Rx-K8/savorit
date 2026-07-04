@@ -111,6 +111,7 @@ jobs:
       - name: Trigger checks on update branch
         if: steps.generated.outputs.changed == 'true'
         run: |
+          sudo chown -R "$USER":"$USER" .git release-notes.md
           git commit --allow-empty -m "CIを再実行"
           git push
 
