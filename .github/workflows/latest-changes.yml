@@ -21,7 +21,7 @@ permissions: {}
 jobs:
   latest-changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       pull-requests: read
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
@@ -35,10 +35,20 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve inputs
+        id: vars
+        env:
+          INPUT_PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.number || github.event.pull_request.number }}
+          INPUT_TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || 'dev' }}
+        run: |
+          echo "pr_number=$INPUT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "target_ref=$INPUT_TARGET_REF" >> "$GITHUB_OUTPUT"
+          echo "update_branch=chore/update-release-notes-pr-$INPUT_PR_NUMBER-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+
       - name: Checkout target ref
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || 'dev' }}
+          ref: ${{ steps.vars.outputs.target_ref }}
           token: ${{ secrets.LATEST_CHANGES }}
           persist-credentials: true
 
@@ -52,11 +62,22 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepare update branch
+        if: steps.release_notes.outputs.exists == 'true'
+        id: prepare
+        env:
+          UPDATE_BRANCH: ${{ steps.vars.outputs.update_branch }}
+        run: |
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git switch -c "$UPDATE_BRANCH"
+          git push -u origin "$UPDATE_BRANCH"
+
       - name: Update release notes
         if: steps.release_notes.outputs.exists == 'true'
         uses: tiangolo/latest-changes@eb3f6e7ff0073896ecb561e774a121de9418fa06 # 0.5.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          number: ${{ steps.vars.outputs.pr_number }}
           latest_changes_file: ./release-notes.md
           latest_changes_header: "^## 最新の変更$"
           end_regex: "^## "
@@ -74,3 +95,47 @@ jobs:
               {"label": "internal", "header": "内部変更"}
             ]
           skip_labels: '["release"]'
+
+      - name: Check generated update
+        if: steps.release_notes.outputs.exists == 'true'
+        id: generated
+        env:
+          BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$BASE_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger checks on update branch
+        if: steps.generated.outputs.changed == 'true'
+        run: |
+          git commit --allow-empty -m "CIを再実行"
+          git push
+
+      - name: Create release notes pull request
+        if: steps.generated.outputs.changed == 'true'
+        id: release_notes_pr
+        env:
+          GH_TOKEN: ${{ secrets.LATEST_CHANGES }}
+          PR_NUMBER: ${{ steps.vars.outputs.pr_number }}
+          TARGET_REF: ${{ steps.vars.outputs.target_ref }}
+          UPDATE_BRANCH: ${{ steps.vars.outputs.update_branch }}
+        run: |
+          pr_url="$(
+            gh pr create \
+              --base "$TARGET_REF" \
+              --head "$UPDATE_BRANCH" \
+              --title "リリースノートを更新 (#$PR_NUMBER)" \
+              --body "PR #$PR_NUMBER の内容をリリースノートへ追記します。"
+          )"
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge
+        if: steps.release_notes_pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.LATEST_CHANGES }}
+        run: |
+          gh pr merge "${{ steps.release_notes_pr.outputs.number }}" --auto --squash --delete-branch
