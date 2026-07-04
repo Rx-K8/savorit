@@ -54,7 +54,7 @@ jobs:
 
       - name: Update release notes
         if: steps.release_notes.outputs.exists == 'true'
-        uses: tiangolo/latest-changes@43f19d63faf0edfed2cc482122bcfbc4a637cf02 # 0.6.0
+        uses: tiangolo/latest-changes@eb3f6e7ff0073896ecb561e774a121de9418fa06 # 0.5.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           latest_changes_file: ./release-notes.md
